@@ -1,0 +1,159 @@
+# Provider configuration
+provider "aws" {
+  region = "us-west-2" # Update with your desired AWS region
+}
+
+# Define the EKS cluster
+resource "aws_eks_cluster" "my_cluster" {
+  name     = "my-cluster"
+  role_arn = aws_iam_role.eks_cluster_role.arn
+
+  vpc_config {
+    subnet_ids = ["subnet-abc123", "subnet-def456"] # Update with your subnet IDs
+    security_group_ids = ["sg-123456"] # Update with your security group ID
+  }
+
+  tags = {
+    Name = "MyEKS"
+  }
+}
+
+# Define the IAM role for EKS cluster
+resource "aws_iam_role" "eks_cluster_role" {
+  name = "eks-cluster-role"
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "eks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+}
+
+# Attach IAM policies to the EKS cluster role
+resource "aws_iam_role_policy_attachment" "eks_cluster_policy_attachment" {
+  role       = aws_iam_role.eks_cluster_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+}
+
+# Define the IAM role for EC2 nodes
+resource "aws_iam_role" "eks_node_role" {
+  name = "eks-node-role"
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ec2.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+}
+
+# Attach IAM policies to the EKS node role
+resource "aws_iam_role_policy_attachment" "eks_node_policy_attachment" {
+  role       = aws_iam_role.eks_node_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+}
+
+# Define the node group
+resource "aws_eks_node_group" "my_cluster_nodes" {
+  cluster_name    = aws_eks_cluster.my_cluster.name
+  node_group_name = "my-cluster-nodes"
+  node_role_arn   = aws_iam_role.eks_node_role.arn
+
+  subnet_ids = ["subnet-abc123", "subnet-def456"] # Update with your subnet IDs
+
+  scaling_config {
+    desired_size = 2
+    max_size     = 2
+    min_size     = 1
+  }
+
+  tags = {
+    Name = "MyNodeGroup"
+  }
+}
+
+# Define the Podman containers
+resource "aws_ecs_task_definition" "my_task" {
+  family                   = "my-task"
+  container_definitions    = file("container_definitions.json")
+}
+
+# Define the load balancer
+resource "aws_lb" "my_lb" {
+  name               = "my-lb"
+  internal           = false
+  load_balancer_type = "application"
+  subnets            = ["subnet-abc123", "subnet-def456"] # Update with your subnet IDs
+
+  tags = {
+    Name = "MyLoadBalancer"
+  }
+}
+
+# Define the listener for the load balancer
+resource "aws_lb_listener" "my_listener" {
+  load_balancer_arn = aws_lb.my_lb.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.my_target_group.arn
+  }
+}
+
+# Define the target group for the load balancer
+resource "aws_lb_target_group" "my_target_group" {
+  name     = "my-target-group"
+  port     = 80
+  protocol = "HTTP"
+  vpc_id   = "vpc-abc123" # Update with your VPC ID
+
+  health_check {
+    path                = "/"
+    protocol            = "HTTP"
+    matcher             = "200-399"
+    interval            = 30
+    timeout             = 10
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+  }
+}
+
+# Attach the EC2 nodes to the target group
+resource "aws_lb_target_group_attachment" "my_target_group_attachment" {
+  target_group_arn = aws_lb_target_group.my_target_group.arn
+  target_id        = aws_eks_node_group.my_cluster_nodes.node_group_arn
+}
+
+# Enable CloudWatch monitoring for the EKS cluster
+resource "aws_cloudwatch_metric_alarm" "eks_cluster_cpu_utilization" {
+  alarm_name          = "eks-cluster-cpu-utilization"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = "1"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EKS"
+  period              = "300"
+  statistic           = "Average"
+  threshold           = "70"
+  alarm_description   = "Alarm when CPU utilization is greater than or equal to 70%"
+  alarm_actions       = ["arn:aws:sns:us-west-2:123456789012:my-topic"] # Update with your SNS topic ARN
+  dimensions = {
+    ClusterName = aws_eks_cluster.my_cluster.name
+  }
+}
