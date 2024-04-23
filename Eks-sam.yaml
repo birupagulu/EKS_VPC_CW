@@ -1,0 +1,104 @@
+Description: EKS SAMPLE
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  EKSCLusterName:
+    Type: String
+    Description: EKS Cluster Name
+  Namespace:
+    Type: String
+    Description: Namespace
+  Subnet1:
+    Type: "AWS::SSM::Parameter::Value<String>"
+    Default: /NET/GIO_OS/vpc-main/PrivSubnet1
+  Subnet2:
+    Type: "AWS::SSM::Parameter::Value<String>"
+    Default: /NET/GIO_OS/vpc-main/PrivSubnet2
+  VpcId:
+    Type: "AWS::SSM::Parameter::Value<String>"
+    Default: /NET/GIO_OS/vpc-main/VPC
+
+Resources:
+  EksSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EKS Security Group
+      GroupName: EksSecurityGroup
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.0.0.0/8
+          Description: "Flow for dev tests"
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 172.0.0.0/8
+          Description: "Flow for dev tests"
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  EksClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: EksClusterRole
+      Description: Role for EKS
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+        - arn:aws:iam::aws:policy/AmazonEKSServicePolicy
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - eks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+  EksFargatePodExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: EksFargatePodExecutionRole
+      Description: Role for EKS Fargate Pod Execution
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/ReadOnlyAccess
+        - arn:aws:iam::aws:policy/AmazonEKSFargatePodExecutionRolePolicy
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - eks-fargate-pods.amazonaws.com
+            Action:
+              - sts:AssumeRole
+  EKSCluster:
+    Type: AWS::EKS::Cluster
+    Properties:
+      Name: !Ref EKSCLusterName
+      Version: !Ref EKSVersion
+      RoleArn: !Ref EksClusterRole
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+          - !Ref EksSecurityGroup
+        SubnetIds:
+          - !Ref Subnet1
+          - !Ref Subnet2
+
+  FargateProfile:
+    Type: AWS::EKS::FargateProfile
+    Properties:
+      ClusterName: !Ref EKSCLusterName
+      FargateProfileName: !Join ["", [!Ref EKSCLusterName, "Profile"]]
+      PodExecutionRoleArn: !Ref EksFargatePodExecutionRole
+      Selectors:
+        - Namespace: !Ref Namespace
+        - Namespace: kube-system
+        - Namespace: default
+      Subnets:
+        - !Ref Subnet1
+        - !Ref Subnet2
