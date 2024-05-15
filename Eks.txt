@@ -1,0 +1,117 @@
+Certainly! Here’s the content in a document format. I'll provide the text which you can copy into a document editor like Microsoft Word or Google Docs, and save as a document file (e.g., `.docx`).
+
+---
+
+# Guide to Create EKS Cluster with Fargate Profile and Deploy NGINX Application
+
+## Prerequisites:
+1. **AWS CLI** installed and configured.
+2. **kubectl** installed.
+3. **eksctl** installed.
+
+## Step 1: Create an EKS Cluster
+
+### Define your VPC and Subnets
+Ensure you have a private VPC and subnets. You can find your VPC ID and subnet IDs in the AWS Management Console under VPC.
+
+### Create the EKS Cluster
+```bash
+eksctl create cluster \
+  --name my-eks-cluster \
+  --version 1.21 \
+  --region us-west-2 \
+  --vpc-private-subnets=subnet-0123456789abcdef0,subnet-0987654321fedcba0 \
+  --without-nodegroup
+```
+Replace `my-eks-cluster`, `us-west-2`, and the subnet IDs with your own values.
+
+## Step 2: Create a Fargate Profile
+
+### Create the Fargate Profile
+```bash
+eksctl create fargateprofile \
+  --cluster my-eks-cluster \
+  --name my-fargate-profile \
+  --namespace default \
+  --selectors app=nginx
+```
+Replace `my-eks-cluster` and `my-fargate-profile` with your own values.
+
+## Step 3: Deploy NGINX Application
+
+### Create an NGINX Deployment YAML file (nginx-deployment.yaml)
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+```
+
+### Apply the NGINX Deployment
+```bash
+kubectl apply -f nginx-deployment.yaml
+```
+
+## Step 4: Create a Private Load Balancer
+
+### Create a Service YAML file (nginx-service.yaml) with an internal load balancer annotation
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+spec:
+  type: LoadBalancer
+  selector:
+    app: nginx
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+```
+
+### Apply the Service
+```bash
+kubectl apply -f nginx-service.yaml
+```
+
+## Step 5: Access NGINX Application
+
+### Get the Load Balancer’s DNS Name
+```bash
+kubectl get services
+```
+Look for the `EXTERNAL-IP` entry under the `nginx-service` service. This will be the DNS name of the load balancer.
+
+### Access the Application
+Since the load balancer is internal, you need to be within the VPC to access the NGINX application. You can use an EC2 instance within the same VPC or set up a VPN connection to the VPC. Open a web browser or use `curl` to access the load balancer’s DNS name.
+
+Example:
+```bash
+curl http://<load-balancer-dns-name>
+```
+
+By following these steps, you will have created an EKS cluster with a Fargate profile, deployed an NGINX application, and set up a private load balancer to access the application securely within your VPC.
+
+---
+
+You can copy this content into a document editor, format it as needed, and save it as a `.docx` file. If you need any additional formatting or specific details included, feel free to ask!
